@@ -1917,6 +1917,9 @@ function _txClearPasswordChangedSession() {
               try {
                 var d = JSON.parse(doc.data().data||'[]');
                 if(d.length) { localStorage.setItem('tx_accounts',JSON.stringify(d)); callback(d); return; }
+                // 2026-10-22: Sunucudaki liste gerçekten boşsa (platform sıfırlandı) tarayıcıdaki ESKİ listeyi kullanma —
+                // aksi halde silinmiş bir hesapla giriş yapılıp kayıt geri oluşuyordu.
+                localStorage.removeItem('tx_accounts'); callback([]); return;
               } catch(e) {}
             }
             // Firebase boş geldi — localStorage fallback
