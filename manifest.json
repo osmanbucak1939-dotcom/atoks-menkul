@@ -1,7 +1,7 @@
 {
-  "name": "İmaj Yatırım",
-  "short_name": "İmaj Yatırım",
-  "description": "İmaj Yatırım - Professional Trading Platform",
+  "name": "Atoks Yatırım",
+  "short_name": "Atoks Yatırım",
+  "description": "Atoks Yatırım - Professional Trading Platform",
   "id": "./",
   "lang": "tr",
   "start_url": "./",
@@ -9,7 +9,7 @@
   "display": "standalone",
   "orientation": "portrait",
   "theme_color": "#101317",
-  "background_color": "#101317",
+  "background_color": "#000000",
   "categories": [
     "finance",
     "business"
