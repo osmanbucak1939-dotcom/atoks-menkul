@@ -1,7 +1,14 @@
 <!DOCTYPE html>
 <html lang="tr">
 <head>
-<script>(function(){
+<script>
+// ── Sunucuya göre saat (2026-11-05) ──
+// Cihazın saati/tarihi yanlış olabilir (bir müşteride işlemler 1-2 gün ileri tarihli yazıldı).
+// Köprü 30 sn'de bir sunucu saatini gönderir; 30 sn'den büyük fark varsa düzeltilir.
+window._txClockSkew = window._txClockSkew || 0;
+function _txNow(){ return Date.now() + (window._txClockSkew || 0); }
+function _txNowISO(){ return new Date(_txNow()).toISOString(); }
+(function(){
   try {
     var t = localStorage.getItem('tx_theme');
     if (t === 'light' || t === 'dark') {
@@ -1382,7 +1389,7 @@ function _authSuccess(user) {
 
   window._txSetOffline = function _txSetOffline() {
     if(!_cu || !_cu.id || typeof db==='undefined' || !db) return;
-    var _now = new Date().toISOString();
+    var _now = _txNowISO();
     // users koleksiyonu — TEK gerçek kaynak. Admin buradan senkronize olur.
     db.collection('users').doc(String(_cu.id)).set({online:false, lastSeen:_now},{merge:true}).catch(function(){});
     // ⚠️ 2026-07-16 KRİTİK GÜVENLİK DÜZELTMESİ: broker/accounts'a yazan blok
@@ -1395,7 +1402,7 @@ function _authSuccess(user) {
   }
   function _txSendHeartbeat() {
     if(!_cu || !_cu.id || typeof db==='undefined' || !db) return;
-    var now = new Date().toISOString();
+    var now = _txNowISO();
     // users koleksiyonuna yaz - 30sn'de bir — TEK gerçek kaynak, admin buradan okur.
     db.collection('users').doc(String(_cu.id)).set({lastSeen:now, online:true},{merge:true}).catch(function(){});
     // ⚠️ 2026-07-16 KRİTİK GÜVENLİK DÜZELTMESİ: broker/accounts transaction'ı
@@ -1405,7 +1412,7 @@ function _authSuccess(user) {
   // Hemen bir kez ve sonra her 30 saniyede
   // Giriş anında lastLogin yaz
   if(typeof db!=='undefined' && db && typeof _cu!=='undefined' && _cu && _cu.id) {
-    var _loginNow = new Date().toISOString();
+    var _loginNow = _txNowISO();
     db.collection('users').doc(String(_cu.id)).set({lastLogin:_loginNow, online:true},{merge:true}).catch(function(){});
   }
   _txSendHeartbeat();
@@ -1902,7 +1909,7 @@ function _txClearPasswordChangedSession() {
           newAcc.id = String(nextId);
           newAcc.login = String(nextId);
           accs.push(newAcc);
-          tx.set(ref, { data: JSON.stringify(accs), updatedAt: new Date().toISOString() });
+          tx.set(ref, { data: JSON.stringify(accs), updatedAt: _txNowISO() });
           return newAcc;
         });
       }).then(function(acc) {
@@ -1920,7 +1927,7 @@ function _txClearPasswordChangedSession() {
           balance: _initBal, bonus: 0, finlog: [],
           positions: [], tradeHistory: [], pendingOrders: [],
           _balanceSource: 'system',
-          updatedAt: new Date().toISOString()
+          updatedAt: _txNowISO()
         }).catch(function(e){ console.warn('fbAddAccount users write:', e); });
         callback && callback(null, acc);
       }).catch(function(e) {
@@ -2875,7 +2882,7 @@ var save = () => {
   localStorage.setItem('tx_al', JSON.stringify(alarms));
   // Firebase'e kaydet (giriş yapmışsa)
   if(typeof _cu !== 'undefined' && _cu && _cu.id) {
-    var _saveTs = new Date().toISOString();
+    var _saveTs = _txNowISO();
     window._lastSyncAt = _saveTs; // kendi yazdığımızı tekrar okuyup ezmeyelim
     var _saveData = {
       positions: Array.isArray(positions) ? positions : [],
@@ -3148,7 +3155,20 @@ function _txCatLabel(g) {
 // bu listede olmayan semboller TwelveData'ya sorulur, NGAS orada tanımlı
 // olmadığı için fiyat akmasına rağmen GRAFİK BOŞ geliyordu. Köprüde NG=F
 // karşılığı var (INDEX_MAP), dolayısıyla /klines proxy'si geçmişi verebiliyor.
+// 2026-11-03: ABD hissesi logosu — farklı kodla eklenmiş hisseler (APPLE, AAPL.US, #AAPL) de tanınır
+var TX_US_STOCKS = ['AAPL','MSFT','NVDA','AMZN','GOOGL','META','TSLA','AVGO','NFLX','AMD','INTC','ORCL','CRM','ADBE','PLTR','JPM','V','MA','BAC','WMT','COST','KO','PEP','MCD','DIS','NKE','BA','XOM','UBER','COIN'];
+var TX_US_ALIAS = {APPLE:'AAPL',TESLA:'TSLA',AMAZON:'AMZN',GOOGLE:'GOOGL',GOOG:'GOOGL',ALPHABET:'GOOGL',NVIDIA:'NVDA',NETFLIX:'NFLX',MICROSOFT:'MSFT',FACEBOOK:'META',BOEING:'BA',WALMART:'WMT',INTEL:'INTC',ORACLE:'ORCL',DISNEY:'DIS',NIKE:'NKE',COCACOLA:'KO',PEPSI:'PEP',PEPSICO:'PEP',MCDONALDS:'MCD',VISA:'V',MASTERCARD:'MA',JPMORGAN:'JPM',EXXON:'XOM',COINBASE:'COIN',PALANTIR:'PLTR',SALESFORCE:'CRM',ADOBE:'ADBE',BROADCOM:'AVGO',COSTCO:'COST',BOFA:'BAC'};
+function _txUsLogoSym(sym){
+  var s = String(sym||'').toUpperCase();
+  if(TX_US_ALIAS[s]) return TX_US_ALIAS[s];
+  var n = s.replace(/^#/,'').replace(/[._\-](US|USA|NYSE|NASDAQ|NAS|O|N)$/,'');
+  if(TX_US_ALIAS[n]) return TX_US_ALIAS[n];
+  return TX_US_STOCKS.indexOf(n) >= 0 ? n : null;
+}
 var TX_INDEX_SYMS = ['SPX500X','NAS100X','DJ30X','DAX40X','DXY','FTSE100X','FRA40X','SUGAR','COTTON','HOIL','COFFEE',
+  // 2026-11-03: RBOB + takma ad kodları (köprü ana sembolün geçmişini verir)
+  'RBOB','BRENT','UKOIL','XBRUSD','BRENTOIL','WTI','WTIUSD','USOUSD','CRUDE','CRUDEOIL','XTIUSD','GASOLINE','RBOBUSD','PALLADIUM','PLATINUM','GOLD','SILVER','NATGAS','NATURALGAS',
+  'APPLE','TESLA','AMAZON','GOOGLE','GOOG','ALPHABET','NVIDIA','NETFLIX','MICROSOFT','FACEBOOK','BOEING','WALMART','INTEL','ORACLE','DISNEY','NIKE','COCACOLA','PEPSI','PEPSICO','MCDONALDS','VISA','MASTERCARD','JPMORGAN','EXXON','COINBASE','PALANTIR','SALESFORCE','ADOBE','BROADCOM','COSTCO','BOFA',
   'BRTUSD','XPDUSD','XPTUSD','NGAS','AAPL','MSFT','NVDA','AMZN','GOOGL','META','TSLA','AVGO','NFLX','AMD','INTC','ORCL','CRM','ADBE','PLTR','JPM','V','MA','BAC','WMT','COST','KO','PEP','MCD','DIS','NKE','BA','XOM','UBER','COIN'];
 // BIST hisseleri — fiyat + grafik köprüden (Yahoo .IS)
 var TX_BIST_SYMS = ['AEFES','AKBNK','ASELS','BIMAS','EKGYO','ENKAI','EREGL','FROTO','GARAN','GUBRF',
@@ -3180,6 +3200,8 @@ function lwLoadKlines(sym, interval, cb) {
   if(!isCrypto) {
     // Sentetik sembol mü? priceSource varsa kaynak sembolün verisini dönüştür
     var _sc = (typeof symConfig !== 'undefined' && symConfig) ? symConfig.find(function(s){ return s.sym===sym; }) : null;
+    // 2026-11-03: kaynak ölüyse (fiyat almıyorsa) sembolün kendi geçmişi kullanılır
+    if(_sc && _sc.priceSource && _sc.priceSource !== sym && window._txRealAt && (Date.now() - (window._txRealAt[_sc.priceSource]||0)) > 120000 && (Date.now() - (window._txRealAt[sym]||0)) < 120000) _sc = null;
     if(_sc && _sc.priceSource) {
       var _srcSym = _sc.priceSource;
       var _factor = parseFloat(_sc.priceFactor)||1;
@@ -3751,7 +3773,7 @@ function _txPendingTx(mutate) {
       var cur = doc.exists ? doc.data().pendingOrders : [];
       if(typeof cur === 'string') { try { cur = JSON.parse(cur||'[]'); } catch(e){ cur = []; } }
       if(!Array.isArray(cur)) cur = [];
-      tx.set(ref, { pendingOrders: mutate(cur.slice()), updatedAt: new Date().toISOString() }, { merge: true });
+      tx.set(ref, { pendingOrders: mutate(cur.slice()), updatedAt: _txNowISO() }, { merge: true });
     });
   }).catch(function(e){ console.warn('[pending] transaction:', e.message); });
 }
@@ -4359,7 +4381,7 @@ function save() {
   try { localStorage.setItem('tx_hist', JSON.stringify(tradeHistory)); } catch(e){}
   // Firebase'e yaz - admin görsün, diğer cihazlar senkronize olsun
   if(typeof fbSaveUserData==='function' && typeof _cu!=='undefined' && _cu && _cu.id) {
-    var _now = new Date().toISOString();
+    var _now = _txNowISO();
     fbSaveUserData(_cu.id, {
       positions: positions,
       tradeHistory: tradeHistory.slice(0,TX_HIST_MAX),
@@ -4428,8 +4450,10 @@ function _txSlTpTick(){
     var pend = (typeof ordType!=='undefined' && ordType && ordType!=='market');
     [['ordSLInfo','ordSL','sl','ordQty','limitPrice'],['ordTPInfo','ordTP','tp','ordQty','limitPrice'],
      ['mSLInfo','mSL','sl','mLI','mLimitPrice'],['mTPInfo','mTP','tp','mLI','mLimitPrice']].forEach(function(r){
-      var box = document.getElementById(r[0]); if(!box || !box.offsetParent) return;
-      var lvl = parseFloat((document.getElementById(r[1])||{}).value);
+      // Not: kutu boşken CSS ile gizli — görünürlüğü kutuya değil GİRİŞ alanına göre kontrol et
+      var box = document.getElementById(r[0]); var inpEl = document.getElementById(r[1]);
+      if(!box || !inpEl || !inpEl.offsetParent) return;
+      var lvl = parseFloat(inpEl.value);
       var lot = parseFloat((document.getElementById(r[3])||{}).value) || 0.01;
       var lp  = pend ? parseFloat((document.getElementById(r[4])||{}).value) : 0;
       var c = _txSlTpCalc(r[2], lvl, lot, lp);
@@ -4845,7 +4869,7 @@ function placeOrder(side) {
   var _swBuy  = (_sgSw&&_sgSw.swaps&&_sgSw.swaps[curSym]!==undefined) ? _sgSw.swaps[curSym].buy  : (_symCfgSw ? (_symCfgSw.swapBuy||0)  : 0);
   var _swSell = (_sgSw&&_sgSw.swaps&&_sgSw.swaps[curSym]!==undefined) ? _sgSw.swaps[curSym].sell : (_symCfgSw ? (_symCfgSw.swapSell||0) : 0);
   var _decPos = _symCfgSw ? (_symCfgSw.decimals||2) : 2;
-  pos = { id:Date.now(), sym:curSym, contractSize:_contractSizeCost, decimals:_decPos, label:(function(){ var _sf=null; for(var _si=0;_si<SYMS.length;_si++){if(SYMS[_si].sym===curSym){_sf=SYMS[_si];break;}} return _sf?_sf.label:curSym; })(), side, qty, openPrice:execPrice, sl, tp, time:new Date().toISOString(), cost:netCost, commission:_commission, hedge:(netQty < qty), device:detectDevice(), swapBuy:_swBuy, swapSell:_swSell, swapTotal:0 };
+  pos = { id:Date.now(), sym:curSym, contractSize:_contractSizeCost, decimals:_decPos, label:(function(){ var _sf=null; for(var _si=0;_si<SYMS.length;_si++){if(SYMS[_si].sym===curSym){_sf=SYMS[_si];break;}} return _sf?_sf.label:curSym; })(), side, qty, openPrice:execPrice, sl, tp, time:_txNowISO(), cost:netCost, commission:_commission, hedge:(netQty < qty), device:detectDevice(), swapBuy:_swBuy, swapSell:_swSell, swapTotal:0 };
   positions.push(pos);
   // ⚠️ KRİTİK: Genel save() yerine, SADECE bu yeni pozisyonu sunucudaki en güncel
   // listeye ekleyen bir transaction kullanıyoruz. Sebep: Cloud Function risk motoru
@@ -4861,7 +4885,7 @@ function placeOrder(side) {
       return tx.get(_refPO).then(function(doc){
         var serverPos = (doc.exists && Array.isArray(doc.data().positions)) ? doc.data().positions.slice() : [];
         serverPos.push(pos);
-        tx.set(_refPO, { positions: serverPos, balance: balance, updatedAt: new Date().toISOString() }, { merge: true });
+        tx.set(_refPO, { positions: serverPos, balance: balance, updatedAt: _txNowISO() }, { merge: true });
       });
     }).catch(function(e){ console.warn('[placeOrder] transaction:', e.message); });
     try { localStorage.setItem('tx_pos', JSON.stringify(positions)); } catch(e){}
@@ -4972,7 +4996,9 @@ function _quoteToUsd(sym, amount) {
   // USD-sözleşmeli kontratlar — dönüşüm gerekmez
   var _USD_CONTRACTS = ['FRA40X','SUGAR','COTTON','HOIL','COFFEE','SPX500X','NAS100X','DJ30X','USOIL','BRTUSD',
     'XAUUSD','XAGUSD','XPTUSD','XPDUSD','NGAS','DXY','FTSE100X','DAX40X',
-    'AAPL','MSFT','NVDA','AMZN','GOOGL','META','TSLA','AVGO','NFLX','AMD','INTC','ORCL','CRM','ADBE','PLTR','JPM','V','MA','BAC','WMT','COST','KO','PEP','MCD','DIS','NKE','BA','XOM','UBER','COIN'];
+    'AAPL','MSFT','NVDA','AMZN','GOOGL','META','TSLA','AVGO','NFLX','AMD','INTC','ORCL','CRM','ADBE','PLTR','JPM','V','MA','BAC','WMT','COST','KO','PEP','MCD','DIS','NKE','BA','XOM','UBER','COIN',
+    // 2026-11-03: takma ad kodları + RBOB (dolar bazlı)
+    'BRENT','UKOIL','XBRUSD','BRENTOIL','WTI','WTIUSD','USOUSD','CRUDE','CRUDEOIL','XTIUSD','PALLADIUM','PLATINUM','GOLD','SILVER','NATGAS','NATURALGAS','GASOLINE','RBOBUSD','APPLE','TESLA','AMAZON','GOOGLE','GOOG','ALPHABET','NVIDIA','NETFLIX','MICROSOFT','FACEBOOK','BOEING','WALMART','INTEL','ORACLE','DISNEY','NIKE','COCACOLA','PEPSI','PEPSICO','MCDONALDS','VISA','MASTERCARD','JPMORGAN','EXXON','COINBASE','PALANTIR','SALESFORCE','ADOBE','BROADCOM','COSTCO','BOFA','RBOB'];
   if(_USD_CONTRACTS.indexOf(sym) >= 0) return amount;
   // Quote currency belirle
   var quoteCur = '';
@@ -5148,7 +5174,7 @@ function closePosition(id, reason='', closeQty) {
     pos.swapTotal = Math.round((_swapC - _swapPart)*100)/100;
     // Geçmişe parça kaydı — YENİ id (açık pozisyonla çakışmasın), izlenebilirlik için parentId
     const _histPart = { ...pos, id: Date.now(), parentId: pos.id, qty: _pq, cost: _costPart, swapTotal: _swapPart,
-      closePrice, pnl: pnlPart, closeTime: new Date().toISOString(), closeReason: reason||'parçalı' };
+      closePrice, pnl: pnlPart, closeTime: _txNowISO(), closeReason: reason||'parçalı' };
     tradeHistory.unshift(_histPart);
     if (tradeHistory.length > TX_HIST_MAX) tradeHistory.pop();
     try { localStorage.setItem('tx_pos', JSON.stringify(positions)); } catch(e){}
@@ -5200,7 +5226,7 @@ function closePosition(id, reason='', closeQty) {
   pnl += _swapC; // birikmiş swap balance'a dahil
   balance += pnl; // MT4/5 model: margin balance'a dahil değildi, sadece K/Z eklenir
   positions.splice(idx, 1);
-  const _histEntry = { ...pos, closePrice, pnl, swapTotal:_swapC, closeTime:new Date().toISOString(), closeReason:reason||'manuel' };
+  const _histEntry = { ...pos, closePrice, pnl, swapTotal:_swapC, closeTime:_txNowISO(), closeReason:reason||'manuel' };
   tradeHistory.unshift(_histEntry);
   if (tradeHistory.length > TX_HIST_MAX) tradeHistory.pop();
   // ⚠️ localStorage'ı güncelle ama save()'İ ÇAĞIRMA — save() tüm tradeHistory'yi
@@ -6173,6 +6199,7 @@ var MARKET_GROUPS = [
       {sym:'USOIL',   name:'WTI/USD',  full:'Ham Petrol (WTI)',        icon:'', spread:0.03,   decimals:2},
       {sym:'BRTUSD',  name:'BRENT',    full:'Brent Petrol',            icon:'', spread:0.03,   decimals:2},
       {sym:'NGAS',    name:'NAT GAS',  full:'Doğal Gaz',               icon:'', spread:0.005,  decimals:3},
+      {sym:'RBOB',    name:'RBOB',     full:'RBOB Benzin',             icon:'', spread:0.005,  decimals:4},   // 2026-11-03 Capital.com
       // ⚠️ 2026-08-19: Paladyum köprüde (YMAP: PA=F) besleniyordu ama katalogda
       // yoktu — bu yüzden "Eksikleri içe aktar" ile de eklenemiyordu.
       {sym:'XPDUSD',  name:'XPD/USD',  full:'Paladyum / Dolar',        icon:'',  spread:1.50,   decimals:2},
@@ -6589,7 +6616,7 @@ function saveRequests() {
       db.collection('broker').doc('requests').set({
         withdraw: JSON.stringify(withdrawRequests),
         deposit:  JSON.stringify(depositRequests),
-        updatedAt: new Date().toISOString()
+        updatedAt: _txNowISO()
       }).catch(function(e){ console.warn('saveRequests firebase:', e); });
     } catch(e){}
   }
@@ -6944,7 +6971,7 @@ function _txUploadReceipt(req, file, done){
   var isPdf = file.type==='application/pdf';
   _depShrinkImage(file, function(blob, dataUrl){
     var meta = { reqId:rid, accountId:uid, accountName:req.accountName||'', amount:req.amount, currency:req.currency||'',
-                 name:file.name||'dekont', type:isPdf?'pdf':'image', at:new Date().toISOString() };
+                 name:file.name||'dekont', type:isPdf?'pdf':'image', at:_txNowISO() };
     var _save = function(){
       var up = {}; up[rid] = meta;
       var p1 = db.collection('users').doc(uid).set({receipts: up}, {merge:true});
@@ -7332,8 +7359,8 @@ function _mwBuildRowHtml(it2, gid) {
           + '<img src="' + _logoUrl + '" alt="" loading="lazy" style="width:20px;height:20px;border-radius:50%;object-fit:contain;background:#fff;border:1px solid var(--border);flex-shrink:0" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'inline-block\';">'
           + '<span style="display:none;width:10px;height:10px;border-radius:50%;background:' + _dot_color + ';"></span>'
           + '</div>';
-  } else if (gid === 'stocks') {
-    var _logoUrl2 = 'https://financialmodelingprep.com/image-stock/' + it2.sym + '.png';
+  } else if (gid === 'stocks' || _txUsLogoSym(it2.sym)) {
+    var _logoUrl2 = 'https://financialmodelingprep.com/image-stock/' + (_txUsLogoSym(it2.sym) || it2.sym) + '.png';
     html += '<div class="mw-icon" onclick="' + _favOnclick + '" style="display:flex;align-items:center;justify-content:center;" title="' + _favTitle + '">'
           + '<img src="' + _logoUrl2 + '" alt="" loading="lazy" style="width:20px;height:20px;border-radius:50%;object-fit:contain;background:#fff;border:1px solid var(--border);flex-shrink:0" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'inline-block\';">'
           + '<span style="display:none;width:10px;height:10px;border-radius:50%;background:' + _dot_color + ';"></span>'
@@ -8280,7 +8307,10 @@ function _txApplyBridgePrice(sym, price, chg){
   if(!window._txLive) window._txLive = {};
   window._txLive[sym] = true;          // gerçek (canlı) tick geldi → kline seed üzerine yazmasın
   var sc = _txGetSymConf(sym);
-  if(sc && sc.priceSource) return;     // sentetik → kaynaktan türetilir
+  // ⚠️ 2026-11-03: Sentetik sembol yalnız KAYNAĞI gerçekten fiyat alıyorsa kaynaktan türetilir.
+  // Kaynak ölü bir koda bağlıysa (eski Twelve Data kodları vb.) fiyat 1.00'da takılı kalıyordu —
+  // artık köprü bu sembolün kendi fiyatını gönderiyorsa o kullanılır.
+  if(sc && sc.priceSource && sc.priceSource !== sym && window._txRealAt && (Date.now() - (window._txRealAt[sc.priceSource]||0)) < 120000) return;
   txApplyPrice(sym, price);
 }
 function _txStartBridge(){
@@ -8298,6 +8328,8 @@ function _txStartBridge(){
     _txBrWs.onopen = function(){ console.log('[köprü] bağlandı'); };
     _txBrWs.onmessage = function(e){
       var msg; try { msg = JSON.parse(e.data); } catch(ex){ return; }
+      // 2026-11-05: sunucu saati — cihaz saati yanlışsa işlem saatleri sunucuya göre yazılır
+      if(msg.type === 'time' && msg.t > 0){ var _sk = msg.t - Date.now(); window._txClockSkew = (Math.abs(_sk) > 30000) ? _sk : 0; return; }
       if(msg.type === 'hl' && msg.d){ _txHLMerge(msg.d); return; }
       if(msg.type === 'snapshot' && msg.hl) _txHLMerge(msg.hl);
       if(msg.type === 'snapshot' && msg.prices){
@@ -8662,7 +8694,7 @@ function _kycOnFileSelected(e) {
     },
     function complete() {
       task.snapshot.ref.getDownloadURL().then(function(url){
-        var kycEntry = { status:'review', url:url, fileName:file.name, uploadedAt:new Date().toISOString() };
+        var kycEntry = { status:'review', url:url, fileName:file.name, uploadedAt:_txNowISO() };
         var patch = { kyc: {} }; patch.kyc[type] = kycEntry;
         if(!db || !_cu || !_cu.id) {
           console.error('KYC Firestore yazım hatası: db veya _cu.id yok', {db:!!db, cu:_cu});
@@ -10168,8 +10200,8 @@ function mob(){ return _txIsMobile(); }
         + '<img src="'+_logoUrl+'" alt="" loading="lazy" style="width:20px;height:20px;border-radius:50%;object-fit:contain;background:#fff;border:1px solid var(--border);flex-shrink:0" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'inline-block\';">'
         + '<span style="display:none;width:10px;height:10px;border-radius:50%;background:'+dotColor+';"></span>'
         + '</div>';
-    } else if (gid === 'stocks') {
-      var _logoUrl2 = 'https://financialmodelingprep.com/image-stock/' + it2.sym + '.png';
+    } else if (gid === 'stocks' || _txUsLogoSym(it2.sym)) {
+      var _logoUrl2 = 'https://financialmodelingprep.com/image-stock/' + (_txUsLogoSym(it2.sym) || it2.sym) + '.png';
       icoHtml = '<div class="mw-icon" onclick="'+_favOnclick+'" style="display:flex;align-items:center;justify-content:center;">'
         + '<img src="'+_logoUrl2+'" alt="" loading="lazy" style="width:20px;height:20px;border-radius:50%;object-fit:contain;background:#fff;border:1px solid var(--border);flex-shrink:0" onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'inline-block\';">'
         + '<span style="display:none;width:10px;height:10px;border-radius:50%;background:'+dotColor+';"></span>'
@@ -11239,7 +11271,7 @@ function _txSessMin(hhmm) {
 function _txSessNow(tzOffsetHours, nowMs) {
   var tz = (tzOffsetHours === undefined || tzOffsetHours === null) ? 3 : parseFloat(tzOffsetHours);
   if (isNaN(tz)) tz = 3;
-  var d = new Date((nowMs || Date.now()) + tz * 3600000);
+  var d = new Date((nowMs || (typeof _txNow==='function' ? _txNow() : Date.now())) + tz * 3600000);   // cihaz saati yanlışsa sunucu saati
   var mm = d.getUTCMonth() + 1, dd = d.getUTCDate();
   return {
     day: d.getUTCDay(),
@@ -11317,9 +11349,10 @@ var TX_SESSION_DEFAULTS = {
 };
 var TX_SESSION_SYMMAP = {
   euidx: ['DAX40X','FTSE100X','FRA40X'],
-  oil:   ['USOIL','BRTUSD','WTIUSD'],
-  usidx: ['NAS100X','SPX500X','DJ30X','DXY','XAUUSD','XAGUSD','XPTUSD','XPDUSD','NGAS','HOIL','SUGAR','COTTON','COFFEE','GAUTRY'],
-  usstock: ['AAPL','MSFT','NVDA','AMZN','GOOGL','META','TSLA','AVGO','NFLX','AMD','INTC','ORCL','CRM','ADBE','PLTR','JPM','V','MA','BAC','WMT','COST','KO','PEP','MCD','DIS','NKE','BA','XOM','UBER','COIN']
+  oil:   ['USOIL','BRTUSD','WTIUSD','RBOB','BRENT','UKOIL','XBRUSD','BRENTOIL','WTI','USOUSD','CRUDE','CRUDEOIL','XTIUSD','GASOLINE','RBOBUSD'],
+  usidx: ['NAS100X','SPX500X','DJ30X','DXY','XAUUSD','XAGUSD','XPTUSD','XPDUSD','NGAS','HOIL','SUGAR','COTTON','COFFEE','GAUTRY','PALLADIUM','PLATINUM','GOLD','SILVER','NATGAS','NATURALGAS'],
+  usstock: ['AAPL','MSFT','NVDA','AMZN','GOOGL','META','TSLA','AVGO','NFLX','AMD','INTC','ORCL','CRM','ADBE','PLTR','JPM','V','MA','BAC','WMT','COST','KO','PEP','MCD','DIS','NKE','BA','XOM','UBER','COIN',
+    'APPLE','TESLA','AMAZON','GOOGLE','GOOG','ALPHABET','NVIDIA','NETFLIX','MICROSOFT','FACEBOOK','BOEING','WALMART','INTEL','ORACLE','DISNEY','NIKE','COCACOLA','PEPSI','PEPSICO','MCDONALDS','VISA','MASTERCARD','JPMORGAN','EXXON','COINBASE','PALANTIR','SALESFORCE','ADOBE','BROADCOM','COSTCO','BOFA']
 };
 // 2026-11-03: Sembolün şablonu (sessionId) yoksa — ör. sembol ayarı eski bir sekmeden/cihazdan
 // üzerine yazılıp bağlar silindiyse — "varsayılan" (forex = hafta içi 7/24) yerine sembolün
